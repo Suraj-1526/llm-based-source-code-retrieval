@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code Search - AI Powered</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+</head>
+<body class="bg-[#343541] text-white">
+    <div class="w-full max-w-4xl mx-auto bg-[#40414F] rounded-2xl shadow-lg p-6 flex flex-col h-[90vh] my-4">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-4">
+            <div>
+                <h2 class="text-2xl font-bold">Code Search</h2>
+                <p class="text-gray-400 text-sm">AI-Powered Repository Search</p>
+            </div>
+            <button onclick="shareChat()" class="bg-[#10A37F] px-4 py-2 rounded-lg hover:bg-[#0e9670] transition">
+                Share
+            </button>
+        </div>
+
+        <!-- Chat Window -->
+        <div id="chatWindow" class="flex-1 overflow-auto space-y-3 p-4 bg-[#343541] rounded-xl flex flex-col"></div>
+
+        <!-- Input Section -->
+        <div class="flex items-center gap-2 mt-4">
+            <input 
+                id="userInput" 
+                type="text" 
+                placeholder="Search code files (e.g., 'authentication middleware')..."
+                class="flex-1 p-3 rounded-lg bg-[#40414F] text-white border border-gray-600 outline-none focus:border-[#10A37F]"
+                onkeypress="handleEnter(event)"
+            >
+            <button 
+                id="searchBtn"
+                onclick="sendMessage()" 
+                class="bg-[#10A37F] px-6 py-3 rounded-lg hover:bg-[#0e9670] transition font-medium"
+            >
+                Search
+            </button>
+            <button 
+                onclick="clearChat()" 
+                class="bg-[#D64045] px-4 py-2 rounded-lg hover:bg-[#c23538] transition"
+            >
+                Clear
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000/api';
+        const chatWindow = document.getElementById("chatWindow");
+        const userInput = document.getElementById("userInput");
+        const searchBtn = document.getElementById("searchBtn");
+
+        async function sendMessage() {
+            const query = userInput.value.trim();
+            if (!query) {
+                alert('Please enter a search query');
+                return;
+            }
+
+            // Show user message
+            appendMessage(query, "user");
+            userInput.value = "";
+            searchBtn.disabled = true;
+
+            // Show loading indicator
+            const loadingId = appendMessage("Searching...", "loading");
+
+            try {
+                const response = await fetch(`${API_URL}/search`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ query: query })
+                });
+
+                const data = await response.json();
+
+                // Remove loading message
+                const loadingMsg = document.getElementById(loadingId);
+                if (loadingMsg) loadingMsg.remove();
+
+                if (data.success && data.results.length > 0) {
+                    // Show results
+                    let resultText = `Found ${data.results.length} matching file(s):\n\n`;
+                    data.results.forEach((result, index) => {
+                        resultText += `${index + 1}. ${result.filename}\n`;
+                    });
+                    
+                    appendMessage(resultText, "ai", data.results);
+                } else {
+                    appendMessage("No results found for your query. Try a different search term.", "ai");
+                }
+            } catch (error) {
+                const loadingMsg = document.getElementById(loadingId);
+                if (loadingMsg) loadingMsg.remove();
+                
+                console.error('Error:', error);
+                appendMessage(
+                    `Error: Unable to connect to backend.\n\nMake sure:\n1. Backend is running (python app.py)\n2. Backend is on port 5000\n3. Error: ${error.message}`, 
+                    "error"
+                );
+            } finally {
+                searchBtn.disabled = false;
+            }
+        }
+
+        function handleEnter(event) {
+            if (event.key === "Enter" && !searchBtn.disabled) {
+                sendMessage();
+            }
+        }
+
+        function appendMessage(text, type, results = null) {
+            const messageDiv = document.createElement("div");
+            const messageId = 'msg-' + Date.now();
+            messageDiv.id = messageId;
+
+            // Determine styling based on type
+            let bgClass = "bg-[#444654]";
+            let alignment = "self-start";
+            
+            if (type === "user") {
+                bgClass = "bg-[#0F766E]";
+                alignment = "self-end";
+            } else if (type === "loading") {
+                bgClass = "bg-[#555555]";
+                alignment = "self-start";
+            } else if (type === "error") {
+                bgClass = "bg-[#D64045]";
+                alignment = "self-start";
+            }
+
+            messageDiv.className = `p-4 rounded-lg max-w-2xl ${bgClass} ${alignment}`;
+
+            const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            let content = text;
+
+            // Add results as clickable items if available
+            if (results && type === "ai" && Array.isArray(results)) {
+                content += "\n\n";
+                results.forEach((result, idx) => {
+                    content += `\n${idx + 1}. ${result.filename}`;
+                    if (result.relevance_score) {
+                        content += ` (Relevance: ${Math.round(result.relevance_score * 100)}%)`;
+                    }
+                });
+            }
+
+            messageDiv.innerHTML = `
+                <p style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(content)}</p>
+                <span class="text-xs text-gray-300 block mt-2 opacity-70">${timestamp}</span>
+            `;
+
+            chatWindow.appendChild(messageDiv);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+            
+            return messageId;
+        }
+
+        function clearChat() {
+            if (confirm("Clear all messages?")) {
+                chatWindow.innerHTML = "";
+            }
+        }
+
+        function shareChat() {
+            let content = "Code Search Results:\n" + "=".repeat(50) + "\n\n";
+            chatWindow.querySelectorAll("div").forEach(msg => {
+                content += msg.innerText + "\n\n";
+            });
+
+            if (content.trim().length < 60) {
+                alert("No messages to share!");
+                return;
+            }
+
+            navigator.clipboard.writeText(content)
+                .then(() => alert("Chat copied to clipboard!"))
+                .catch(err => alert("Failed to copy: " + err));
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        // Check backend connection on load
+        window.onload = async () => {
+            try {
+                const response = await fetch(`${API_URL}/health`);
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    appendMessage("✓ Connected to backend. Ready to search!", "ai");
+                }
+            } catch (error) {
+                appendMessage(
+                    "⚠️ Warning: Cannot connect to backend.\n\nMake sure:\n1. Run: python app.py\n2. Backend runs on localhost:5000",
+                    "error"
+                );
+            }
+        };
+    </script>
+</body>
+</html>
