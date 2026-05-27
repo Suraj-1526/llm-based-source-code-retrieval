@@ -1,0 +1,4 @@
+repositories
+vector_store
+.env
+__pycache__
